@@ -1,0 +1,223 @@
+---
+title: "Peer Graded Assignment: The milestone report"
+author: "Krishan Bhatt"
+date: "2016/11/27"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+# Introduction
+
+This milestone report is for the Coursera Capstone Project for Data mining class. This report is to demonstrate the basic data analysis of the Capstone Dataset. The main objective would be to apply the acknowledged data science knowledge in the area of natural lanugage processing.
+
+We will :
+
+1. do basic summaries of the three files, including word counts, line counts and basic data tables;
+2. prepare basic plots, such as histograms to illustrate features of the data;
+3. write a brief, concise report in a way that a non-data scientist manager can appreciate.
+
+# Data Collection
+
+The data were downloaded from the course website (from [HC Corpora](www.corpora.heliohost.org)) and unzipped to extract the English database as a corpus. Three text documents from the twitter, blog and news were found with each line standing for a message.
+
+1. en_US.blogs.txt - text from blog posts
+2. en_US.news.txt - text from news articles posted online
+3. en_US.twitter.txt - tweets on Twitter
+
+
+```{r, Downloading Data, eval=FALSE}
+if(!file.exists("Coursera-SwiftKey.zip")){
+    download.file("https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip",
+                  "Coursera-SwiftKey.zip")
+    Download_Date <- Sys.time()
+    
+    unzip("Coursera-SwiftKey.zip")
+}else{
+    print("Dataset is already downloaded!")
+}
+```
+
+# Data Pre-Summary
+
+After downloading the dataset here are few summary point from it.
+
+###The file size of the data.
+```{r, Data Summary}
+
+filesz1 <- file.info("data/en_US/en_US.blogs.txt")$size / 1024^2
+filesz2 <- file.info("data/en_US/en_US.news.txt")$size / 1024^2
+filesz3 <- file.info("data/en_US/en_US.twitter.txt")$size / 1024^2
+rbind(filesz1, filesz2, filesz3)
+
+```
+
+###Load the three text files found in final folder using readLines function.
+
+```{r, Data Read}
+con1 <- file("data/en_US/en_US.blogs.txt", "rb")
+blogs <- readLines(con1, encoding = "UTF-8",skipNul = TRUE)
+close(con1)
+
+con2 <- file("data/en_US/en_US.news.txt", "rb")
+news <- readLines(con2, encoding = "UTF-8",skipNul = TRUE)
+close(con2)
+
+con3 <- file("data/en_US/en_US.twitter.txt", "rb")
+twitter <- readLines(con3, encoding = "UTF-8",skipNul = TRUE)
+close(con3)
+```
+
+###Going to count the lines and words for each of the file we uploaded.
+
+```{r, Data Summary -2}
+ls1 <- length(blogs)
+ls2 <- length(news)
+ls3 <- length(twitter)
+linecount <- rbind(ls1, ls2, ls3)
+#word count of each file
+library(stringi)
+wordsz1 <- sum(stri_count_words(blogs))
+wordsz2 <- sum(stri_count_words(news))
+wordsz3 <- sum(stri_count_words(twitter))
+wordcount <- rbind(wordsz1, wordsz2, wordsz3)
+#display result
+Txtfile <- Sys.glob("data/en_US/*.txt")
+r <- data.frame(Txtfile, linecount, wordcount)
+rownames(r) <- c(1,2,3)
+print(r)
+
+```
+
+These text files are very large with size 200MB, 196MB,and 159MB respectively from the summary above. Since it would be very time consuming if we analyze the full data set, we will going to randomly choose 5% from the lines in each file to be samples. The sampled files would be combined together and written to a separate directory for the analysis.
+
+```{r, Sampelling }
+
+set.seed(10000)
+s_blogs <- sample(blogs, ls1*0.05)
+s_news <- sample(news, ls2*0.05)
+s_twitter <- sample(twitter, ls3*0.05)
+s_Data <- c(s_blogs,s_news,s_twitter)
+writeLines(s_Data, "data/sample/sampleData.txt")
+rm(blogs, news, twitter, s_blogs, s_news, s_twitter, s_Data)
+```
+
+Cleaning Data and preprocessing As we have our sample data set, we shall need to create our own Corpus.
+
+```{r}
+library(NLP)
+library(tm)
+library(RWeka)
+cname <- file.path("C:/Krishna/MyProject/DataScience/10_Capstone/Week_2", "data","sample")
+docs <- Corpus(DirSource(cname)) 
+```
+
+We will also need to cleanse the data.The raw text file contains some characters, symbols, and words, that may not provide useful information. Therefore, we need to clean the data first. we will remove such things as numbers, punctuation, white space, etc. We will also remove the stopwords in english. Although we randomly sampled the original dataset, out corpus is still around 40Mb. Thus, We shall simplify our R codes with pipes (%>%) to save some running time.
+
+```{r, Data Cleanup}
+library(magrittr)
+library(SnowballC)
+docsf <- docs %>%
+  tm_map(tolower) %>%  #transfer to lowercase
+  tm_map(removePunctuation) %>% #remove punctuation
+  tm_map(removeNumbers) %>%     #remove numbers
+  tm_map(stemDocument) %>%      #remove common word endings
+  tm_map(stripWhitespace)%>%    #strip white spaces
+  tm_map(removeWords, stopwords("en"))%>%
+  tm_map(PlainTextDocument)     #transfer to plain text document
+```
+
+# Exploratory analysis
+
+After we clean and tokenize the data, we are ready to do some exploratory analysis. We will use 1-grams model to explore the most frequent words in the data.
+
+
+```{r, 1-Gram}
+UnigramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min=1, max=1))
+dtm_uni <- DocumentTermMatrix(docsf, control=list(tokenize=UnigramTokenizer))
+dtm_uni_freq <-dtm_uni %>%
+  removeSparseTerms(0.2) %>%
+  as.matrix %>%
+  colSums %>%
+  sort(decreasing=TRUE)  
+dtm_uni_freq_d <- data.frame(word = names(dtm_uni_freq), freq = dtm_uni_freq)
+head(dtm_uni_freq_d, 10)
+```
+
+Next, we shall use the 2-grams model to determine the most frequent two-word phrases.
+
+```{r, 2-Gram}
+BigramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min=2, max=2))
+dtm_bi <- DocumentTermMatrix(docsf, control=list(tokenize=BigramTokenizer))
+dtm_bi_freq <-dtm_bi %>%
+  removeSparseTerms(0.2) %>%
+  as.matrix %>%
+  colSums %>%
+  sort(decreasing=TRUE)  
+dtm_bi_freq_d <- data.frame(word = names(dtm_bi_freq), freq = dtm_bi_freq)
+head(dtm_bi_freq_d, 10)
+```
+
+Next, we shall use 3-grams to look at the most frequent three-word phrases.
+
+```{r, 3-Gram}
+TrigramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min=3, max=3))
+dtm_tri <- DocumentTermMatrix(docsf, control=list(tokenize=TrigramTokenizer))
+dtm_tri_freq <-dtm_tri %>%
+  removeSparseTerms(0.2) %>%
+  as.matrix %>%
+  colSums %>%
+  sort(decreasing=TRUE)  
+dtm_tri_freq_d <- data.frame(word = names(dtm_tri_freq), freq = dtm_tri_freq)
+head(dtm_tri_freq_d, 10)
+```
+
+Finally , we show the data mining results in histogram plots.
+
+```{r, plot}
+library(ggplot2)
+library(gridExtra)
+frequ10 <- head(dtm_uni_freq_d, 10)
+freqb10 <- head(dtm_bi_freq_d, 10)
+freqt10 <- head(dtm_tri_freq_d, 10)
+up <- ggplot(frequ10, aes(x=reorder(word,freq), y=freq)) +
+  geom_bar(stat="identity") +
+  theme_bw() +
+  coord_flip() +
+  theme(axis.title.y = element_blank()) +
+  labs(y="Frequency", title="Top 10 frequent word in Unigram matrix")
+bp <-ggplot(freqb10, aes(x=reorder(word,freq), y=freq)) +
+  geom_bar(stat="identity") +
+  theme_bw() +
+  coord_flip() +
+  theme(axis.title.y = element_blank()) +
+  labs(y="Frequency", title="Top 10 frequent two-word phrases in Bigram matrix")
+tp <- ggplot(freqt10, aes(x=reorder(word,freq), y=freq)) +
+  geom_bar(stat="identity") +
+  theme_bw() +
+  coord_flip() +
+  theme(axis.title.y = element_blank()) +
+  labs(y="Frequency", title="Top 10 frequent three-word phrases in Trigram matrix")
+grid.arrange(up, bp, tp, ncol=1, nrow =3)
+```
+
+
+
+#Prediction algorithm and Shiny app Plans
+
+Based on the above exploratory analysis and the n-gram models a potential strategy for our prediction algorithm would be to utilize a frequency look up using the n-gram models. 
+
+As for the Shiny app it will consist of a simple user interface that will allow a user to enter text into a single textbox. This will trigger our algorithm and provide suggestions of the next word. This will include a list of words for the user to select.
+
+There are points to improve the models:
+
+1. Better sample size
+
+2. Random sample
+
+3. More data cleansing
+
+4. Determine test and train datasets for a later prediction model
+
+
+
